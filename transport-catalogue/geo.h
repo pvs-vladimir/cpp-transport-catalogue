@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+namespace transport_catalogue {
+
 struct Coordinates {
     double lat;
     double lng;
@@ -22,4 +24,6 @@ inline double ComputeDistance(Coordinates from, Coordinates to) {
     return acos(sin(from.lat * dr) * sin(to.lat * dr)
                 + cos(from.lat * dr) * cos(to.lat * dr) * cos(abs(from.lng - to.lng) * dr))
         * 6371000;
+}
+
 }
