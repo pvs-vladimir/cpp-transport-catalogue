@@ -62,6 +62,32 @@ std::vector<std::string_view> Split(std::string_view string, char delim) {
     return result;
 }
 
+std::unordered_map<std::string_view, int> ParseDistances(std::string_view string) {
+    std::unordered_map<std::string_view, int> result;
+
+    std::vector<std::string_view> ways = Split(string, ',');
+    for (auto way : ways) {
+        std::string_view distance_str = way.substr(0, way.find_first_of('m'));
+        std::string_view stop = way.substr(way.find_first_of('o') + 1);
+        result[Trim(stop)] = std::stoi(std::string(distance_str));
+    }
+
+    return result;
+}
+
+StopDescription ParseStopDescription(std::string_view string, ParseStopCommand command) {
+    auto comma1 = string.find(',');
+    auto comma2 = string.find(',', comma1 + 1);
+    switch (command) {
+    case ParseStopCommand::COORDINATES:
+        return {ParseCoordinates(string.substr(0, comma2)), {}};
+    case ParseStopCommand::DISTANCES:
+        return {{}, ParseDistances(string.substr(comma2 + 1))};
+    default:
+        return {{}, {}};
+    }
+}
+
 /**
  * Парсит маршрут.
  * Для кольцевого маршрута (A>B>C>A) возвращает массив названий остановок [A,B,C,A]
@@ -114,8 +140,17 @@ void InputReader::ApplyCommands([[maybe_unused]] TransportCatalogue& catalogue) 
 
     for (auto command_description : commands_) {
         if (command_description.command == "Stop"s) {
-            Coordinates coordinates = detail::ParseCoordinates(command_description.description);
-            catalogue.AddStop({command_description.id, coordinates});
+            StopDescription stop_description = detail::ParseStopDescription(command_description.description, ParseStopCommand::COORDINATES);
+            catalogue.AddStop({command_description.id, stop_description.coordinates});
+        }
+    }
+
+    for (auto command_description : commands_) {
+        if (command_description.command == "Stop"s) {
+            StopDescription stop_description = detail::ParseStopDescription(command_description.description, ParseStopCommand::DISTANCES);
+            for (auto [way, distance] : stop_description.distances) {
+                catalogue.AddDistance(command_description.id, way, distance);
+            }
         }
     }
 

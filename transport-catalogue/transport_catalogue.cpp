@@ -44,11 +44,14 @@ std::optional<Info> TransportCatalogue::GetBusInfo(std::string_view bus_name) co
     info.stops_count = bus.stops.size();
     std::unordered_set<Stop*> unique_stops(bus.stops.begin(), bus.stops.end());
     info.unique_stops_count = unique_stops.size();
-    double route_length = 0.0;
+    int route_length = 0;
+    double route_length_geo = 0.0;
     for (size_t i = 0; i < bus.stops.size() - 1; ++i) {
-        route_length += ComputeDistance(bus.stops[i]->coordinates, bus.stops[i + 1]->coordinates);
+        route_length += GetDistance(bus.stops[i]->name, bus.stops[i + 1]->name).value();
+        route_length_geo += ComputeDistance(bus.stops[i]->coordinates, bus.stops[i + 1]->coordinates);
     }
     info.route_length = route_length;
+    info.curvature = route_length / route_length_geo;
     return info;
 }
 
@@ -57,6 +60,24 @@ std::optional<std::set<std::string_view>> TransportCatalogue::GetStopInfo(std::s
         return std::nullopt;
     }
     return stopname_to_busnames_.at(stop_name);
+}
+
+void TransportCatalogue::AddDistance(std::string_view from, std::string_view to, int distance) {
+    std::pair<Stop*, Stop*> way = {FindStop(from), FindStop(to)};
+    distances_[way] = distance;
+}
+
+std::optional<int> TransportCatalogue::GetDistance(std::string_view stop1, std::string_view stop2) const {
+    Stop* stop1_p = FindStop(stop1);
+    Stop* stop2_p = FindStop(stop2);
+    if (stop1_p && stop2_p) {
+        if (distances_.count({stop1_p, stop2_p}) > 0) {
+            return distances_.at({stop1_p, stop2_p});
+        } else if (distances_.count({stop2_p, stop1_p}) > 0) {
+            return distances_.at({stop2_p, stop1_p});
+        }
+    }
+    return std::nullopt;
 }
 
 }

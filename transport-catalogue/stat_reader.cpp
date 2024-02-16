@@ -35,7 +35,8 @@ void PrintBusStat(std::string_view bus_name, std::optional<Info> info, std::ostr
     if (info.has_value()) {
         output << info.value().stops_count << " stops on route, "s;
         output << info.value().unique_stops_count << " unique stops, "s;
-        output << std::setprecision(6) << info.value().route_length << " route length"s << std::endl;
+        output << info.value().route_length << " route length, "s;
+        output << std::setprecision(6) << info.value().curvature << " curvature"s << std::endl;
     } else {
         output << "not found"s << std::endl;
     }

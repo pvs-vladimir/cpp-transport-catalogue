@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "geo.h"
@@ -9,6 +10,16 @@
 
 namespace transport_catalogue {
 namespace input_reader {
+
+enum ParseStopCommand {
+    COORDINATES,
+    DISTANCES
+};
+
+struct StopDescription {
+    Coordinates coordinates;
+    std::unordered_map<std::string_view, int> distances;
+};
 
 struct CommandDescription {
     // Определяет, задана ли команда (поле command непустое)
