@@ -18,6 +18,10 @@ Stop* TransportCatalogue::FindStop(std::string_view stop_name) const {
     return nullptr;
 }
 
+std::unordered_map<std::string_view, Stop*> TransportCatalogue::GetStopList() const {
+    return stopname_to_stop_;
+}
+
 void TransportCatalogue::AddBus(const Bus& bus) {
     buses_.push_back(bus);
     std::string_view bus_name{buses_.back().name};
@@ -35,11 +39,15 @@ Bus* TransportCatalogue::FindBus(std::string_view bus_name) const {
     return nullptr;
 }
 
-std::optional<Info> TransportCatalogue::GetBusInfo(std::string_view bus_name) const {
+std::unordered_map<std::string_view, Bus*> TransportCatalogue::GetBusList() const {
+    return busname_to_bus_;
+}
+
+std::optional<BusInfo> TransportCatalogue::GetBusInfo(std::string_view bus_name) const {
     if (busname_to_bus_.count(bus_name) == 0) {
         return std::nullopt;
     }
-    Info info;
+    BusInfo info;
     Bus bus = *busname_to_bus_.at(bus_name);
     info.stops_count = bus.stops.size();
     std::unordered_set<Stop*> unique_stops(bus.stops.begin(), bus.stops.end());

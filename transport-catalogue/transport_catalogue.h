@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <functional>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -10,21 +11,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "domain.h"
 #include "geo.h"
 
 namespace transport_catalogue {
 
-struct Stop {
-	std::string name;
-	Coordinates coordinates;
-};
-
-struct Bus {
-	std::string name;
-	std::vector<Stop*> stops;
-};
-
-struct Info {
+struct BusInfo {
 	int stops_count;
 	int unique_stops_count;
 	int route_length;
@@ -46,9 +38,11 @@ class TransportCatalogue {
 public:
 	void AddStop(const Stop& stop);
 	Stop* FindStop(std::string_view stop_name) const;
+	std::unordered_map<std::string_view, Stop*> GetStopList() const;
 	void AddBus(const Bus& bus);
 	Bus* FindBus(std::string_view bus_name) const;
-	std::optional<Info> GetBusInfo(std::string_view bus_name) const;
+	std::unordered_map<std::string_view, Bus*> GetBusList() const;
+	std::optional<BusInfo> GetBusInfo(std::string_view bus_name) const;
 	std::optional<std::set<std::string_view>> GetStopInfo(std::string_view stop_name) const;
 	void AddDistance(std::string_view from, std::string_view to, int distance);
 	std::optional<int> GetDistance(std::string_view from, std::string_view to) const;
