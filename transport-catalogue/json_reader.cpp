@@ -9,54 +9,28 @@ JsonReader::JsonReader(std::istream& input) : data_(json::Load(input)) {
 }
 
 void JsonReader::LoadCatalogueData(TransportCatalogue& catalogue)  const {
-    if (data_.GetRoot().AsMap().count("base_requests"s) > 0) {
-        const auto& base_requests = data_.GetRoot().AsMap().at("base_requests"s).AsArray();
-        for (const auto& request : base_requests) {
-            const auto& map = request.AsMap();
-            if (map.count("type"s) == 0) {
-                throw std::invalid_argument("Invalid base request: Invalid type"s);
-            }
-
-            if (map.at("type"s) == "Stop"s) {
-                std::string error;
-                if (!CheckStopData(map, error)) {
-                    throw std::invalid_argument("Invalid base request: "s + error);
-                }
-                LoadStopData(catalogue, map);
-            }
-        }
-
-        for (const auto& request : base_requests) {
-            const auto& map = request.AsMap();
-            if (map.at("type"s) == "Stop"s) {
-                LoadStopDistances(catalogue, map.at("name"s).AsString(), map.at("road_distances"s).AsMap());
-            }
-        }
-
-        for (const auto& request : base_requests) {
-            const auto& map = request.AsMap();
-            if (map.at("type"s) == "Bus"s) {
-                std::string error;
-                if (!CheckBusData(map, error)) {
-                    throw std::invalid_argument("Invalid base request: "s + error);
-                }
-                LoadBusData(catalogue, map);
-            }
-        }
+    const auto it_end = data_.GetRoot().AsMap().end();
+    auto it = data_.GetRoot().AsMap().find("base_requests"s);
+    if (it != it_end) {
+        const auto& base_requests = it->second.AsArray();
+        LoadStopsData(catalogue, base_requests);
+        LoadStopsDistances(catalogue, base_requests);
+        LoadBusesData(catalogue, base_requests);
     }
 }
 
-std::vector<request_handler::Request> JsonReader::LoadStatRequests() const {
-    std::vector<request_handler::Request> result;
-    if (data_.GetRoot().AsMap().count("stat_requests"s) > 0) {
-        const auto& stat_requests = data_.GetRoot().AsMap().at("stat_requests"s).AsArray();
+std::vector<Request> JsonReader::LoadStatRequests() const {
+    std::vector<Request> result;
+    const auto it_end = data_.GetRoot().AsMap().end();
+    auto it = data_.GetRoot().AsMap().find("stat_requests"s);
+    if (it != it_end) {
+        const auto& stat_requests = it->second.AsArray();
         for (const auto& stat_request : stat_requests) {
             const auto& map = stat_request.AsMap();
-            std::string error;
-            if (!CheckStatRequest(map, error)) {
-                throw std::invalid_argument("Invalid stat request: "s + error);
+            if (auto error = CheckStatRequest(map); error.has_value()) {
+                throw std::invalid_argument("Invalid stat request: "s + error.value());
             }
-            request_handler::Request request;
+            Request request;
             request.id = map.at("id"s).AsInt();
             request.type = map.at("type"s).AsString();
             if (request.type == "Bus"s || request.type == "Stop"s) {
@@ -71,11 +45,12 @@ std::vector<request_handler::Request> JsonReader::LoadStatRequests() const {
 
 map_renderer::RenderSettings JsonReader::LoadRenderSettings() const {
     map_renderer::RenderSettings result;
-    if (data_.GetRoot().AsMap().count("render_settings"s)) {
-        const auto& render_settings = data_.GetRoot().AsMap().at("render_settings"s).AsMap();
-        std::string error;
-        if (!CheckRenderSettings(render_settings, error)) {
-            throw std::invalid_argument("Invalid render settings: "s + error);
+    const auto it_end = data_.GetRoot().AsMap().end();
+    auto it = data_.GetRoot().AsMap().find("render_settings"s);
+    if (it != it_end) {
+        const auto& render_settings = it->second.AsMap();
+        if (auto error = CheckRenderSettings(render_settings); error.has_value()) {
+            throw std::invalid_argument("Invalid render settings: "s + error.value());
         }
         result.width = render_settings.at("width"s).AsDouble();
         result.height = render_settings.at("height"s).AsDouble();
@@ -94,24 +69,41 @@ map_renderer::RenderSettings JsonReader::LoadRenderSettings() const {
     return result;
 }
 
-bool JsonReader::CheckStopData(const json::Dict& stop, std::string& error) const {
-    if (!(stop.count("name"s) > 0 && stop.at("name"s).IsString())) {
-        error = "The stop name is not found or has an incorrect format"s;
-        return false;
+json::Document JsonReader::RenderAnswersJson(const request_handler::RequestHandler& handler, const std::vector<Request>& requests) const {
+    json::Array answers;
+    
+    for (const auto& request : requests) {
+        if (request.type == "Bus"s) {
+            answers.push_back({GetBusJsonData(handler, request)});
+        } else if (request.type == "Stop"s) {
+            answers.push_back({GetStopJsonData(handler, request)});
+        } else if (request.type == "Map"s) {
+            answers.push_back({GetMapJsonData(handler, request)});
+        }
     }
-    if (!(stop.count("latitude"s) > 0 && stop.at("latitude"s).IsDouble())) {
-        error = "The stop latitude is not found or has an incorrect format"s; 
-        return false;
+
+    return json::Document(json::Node(answers));
+}
+
+std::optional<std::string> JsonReader::CheckStopData(const json::Dict& stop) const {
+    const auto it_end = stop.end();
+    auto it = stop.find("name"s);
+    if (!(it != it_end && it->second.IsString())) {
+        return "The stop name is not found or has an incorrect format"s;
     }
-    if (!(stop.count("longitude"s) > 0 && stop.at("longitude"s).IsDouble())) {
-        error = "The stop longitude is not found or has an incorrect format"s;
-        return false;
+    it = stop.find("latitude"s);
+    if (!(it != it_end && it->second.IsDouble())) {
+        return "The stop latitude is not found or has an incorrect format"s; 
     }
-    if (!(stop.count("road_distances"s) > 0 && CheckStopDistances(stop.at("road_distances"s).AsMap()))) {
-        error = "The stop road_distances is not found or has an incorrect format"s;
-        return false;
+    it = stop.find("longitude"s);
+    if (!(it != it_end && it->second.IsDouble())) {
+        return "The stop longitude is not found or has an incorrect format"s;
     }
-    return true;
+    it = stop.find("road_distances"s);
+    if (!(it != it_end && CheckStopDistances(it->second.AsMap()))) {
+        return "The stop road_distances is not found or has an incorrect format"s;
+    }
+    return std::nullopt;
 }
 
 bool JsonReader::CheckStopDistances(const json::Dict& distances) const {
@@ -123,20 +115,21 @@ bool JsonReader::CheckStopDistances(const json::Dict& distances) const {
     return true;
 }
 
-bool JsonReader::CheckBusData(const json::Dict& bus, std::string& error) const {
-    if (!(bus.count("name"s) > 0 && bus.at("name"s).IsString())) {
-        error = "The bus name is not found or has an incorrect format"s;
-        return false;
+std::optional<std::string> JsonReader::CheckBusData(const json::Dict& bus) const {
+    const auto it_end = bus.end();
+    auto it = bus.find("name"s);
+    if (!(it != it_end && it->second.IsString())) {
+        return "The bus name is not found or has an incorrect format"s;
     }
-    if (!(bus.count("stops"s) > 0 && CheckBusStops(bus.at("stops"s).AsArray()))) {
-        error = "The bus stops is not found or has an incorrect format"s;
-        return false;
+    it = bus.find("stops"s);
+    if (!(it != it_end && CheckBusStops(it->second.AsArray()))) {
+        return "The bus stops is not found or has an incorrect format"s;
     }
-    if (!(bus.count("is_roundtrip"s) > 0 && bus.at("is_roundtrip"s).IsBool())) {
-        error = "The bus is_roundtrip is not found or has an incorrect format"s;
-        return false;
+    it = bus.find("is_roundtrip"s);
+    if (!(it != it_end && it->second.IsBool())) {
+        return "The bus is_roundtrip is not found or has an incorrect format"s;
     }
-    return true;
+    return std::nullopt;
 }
 
 bool JsonReader::CheckBusStops(const json::Array& stops) const {
@@ -148,239 +141,255 @@ bool JsonReader::CheckBusStops(const json::Array& stops) const {
     return true;
 }
 
-bool JsonReader::CheckStatRequest(const json::Dict& request, std::string& error) const {
-    if (!(request.count("id"s) > 0 && request.at("id"s).IsInt())) {
-        error = "Id is not found or has an incorrect format"s;
-        return false;
+std::optional<std::string> JsonReader::CheckStatRequest(const json::Dict& request) const {
+    const auto it_end = request.end();
+    auto it = request.find("id"s);
+    if (!(it != it_end && it->second.IsInt())) {
+        return "Id is not found or has an incorrect format"s;
     }
-    if (!(request.count("type"s) > 0 && request.at("type"s).IsString())) {
-        error = "Type is not found or has an incorrect format"s;
-        return false;
+    it = request.find("type"s);
+    if (!(it != it_end && it->second.IsString())) {
+        return "Type is not found or has an incorrect format"s;
     }
-    if (request.at("type"s).AsString() == "Stop"s || request.at("type"s).AsString() == "Bus"s) {
-        if (!(request.count("name"s) > 0 && request.at("name"s).IsString())) {
-            error = "Stop/Bus name is not found or has an incorrect format"s;
-            return false;
+    if (it->second.AsString() == "Stop"s || it->second.AsString() == "Bus"s) {
+        it = request.find("name"s);
+        if (!(it != it_end && it->second.IsString())) {
+            return "Stop/Bus name is not found or has an incorrect format"s;
         }
     }
-    return true;
+    return std::nullopt;
 }
 
 namespace detail {
     
-    bool CheckWidth(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("width"s) > 0 && settings.at("width"s).IsDouble())) {
-            error = "The width is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckWidth(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("width"s);
+        if (!(it != it_end && it->second.IsDouble())) {
+            return "The width is not found or has an incorrect format"s;
         }
-        double width = settings.at("width"s).AsDouble();
+        double width = it->second.AsDouble();
         if (!(width >= 0.0 && width <= 100000.0)) {
-            error = "The width is out of range"s;
-            return false;
+            return "The width is out of range"s;
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckHeight(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("height"s) > 0 && settings.at("height"s).IsDouble())) {
-            error = "The height is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckHeight(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("height"s);
+        if (!(it != it_end && it->second.IsDouble())) {
+            return "The height is not found or has an incorrect format"s;
         }
-        double height = settings.at("height"s).AsDouble();
+        double height = it->second.AsDouble();
         if (!(height >= 0.0 && height <= 100000.0)) {
-            error = "The height is out of range"s;
-            return false;
+            return "The height is out of range"s;
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckPadding(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("padding"s) > 0 && settings.at("padding"s).IsDouble())) {
-            error = "The padding is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckPadding(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("padding"s);
+        if (!(it != it_end && it->second.IsDouble())) {
+            return "The padding is not found or has an incorrect format"s;
         }
-        double padding = settings.at("padding"s).AsDouble();
+        double padding = it->second.AsDouble();
         if (!(padding >= 0.0 && padding < std::min(settings.at("width"s).AsDouble(), settings.at("height"s).AsDouble()) / 2)) {
-            error = "The padding is out of range"s;
-            return false;
+            return "The padding is out of range"s;
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckLineWidth(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("line_width"s) > 0 && settings.at("line_width"s).IsDouble())) {
-            error = "The line_width is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckLineWidth(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("line_width"s);
+        if (!(it != it_end && it->second.IsDouble())) {
+            return "The line_width is not found or has an incorrect format"s;
         }
-        double line_width = settings.at("line_width"s).AsDouble();
+        double line_width = it->second.AsDouble();
         if (!(line_width >= 0.0 && line_width <= 100000.0)) {
-            error = "The line_width is out of range"s;
-            return false;
+            return "The line_width is out of range"s;
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckStopRadius(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("stop_radius"s) > 0 && settings.at("stop_radius"s).IsDouble())) {
-            error = "The stop_radius is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckStopRadius(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("stop_radius"s);
+        if (!(it != it_end && it->second.IsDouble())) {
+            return "The stop_radius is not found or has an incorrect format"s;
         }
-        double stop_radius = settings.at("stop_radius"s).AsDouble();
+        double stop_radius = it->second.AsDouble();
         if (!(stop_radius >= 0.0 && stop_radius <= 100000.0)) {
-            error = "The stop_radius is out of range"s;
-            return false;
+            return "The stop_radius is out of range"s;
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckBusLabelFontSize(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("bus_label_font_size"s) > 0 && settings.at("bus_label_font_size"s).IsInt())) {
-            error = "The bus_label_font_size is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckBusLabelFontSize(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("bus_label_font_size"s);
+        if (!(it != it_end && it->second.IsInt())) {
+            return "The bus_label_font_size is not found or has an incorrect format"s;
         }
-        int bus_label_font_size = settings.at("bus_label_font_size"s).AsInt();
+        int bus_label_font_size = it->second.AsInt();
         if (!(bus_label_font_size >= 0 && bus_label_font_size <= 100000)) {
-            error = "The bus_label_font_size is out of range"s;
-            return false;
+            return "The bus_label_font_size is out of range"s;
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckBusLabelOffset(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("bus_label_offset"s) > 0 && settings.at("bus_label_offset"s).IsArray())) {
-            error = "The bus_label_offset is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckBusLabelOffset(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("bus_label_offset"s);
+        if (!(it != it_end && it->second.IsArray())) {
+            return "The bus_label_offset is not found or has an incorrect format"s;
         }
-        const auto& offset = settings.at("bus_label_offset"s).AsArray();
+        const auto& offset = it->second.AsArray();
         if (offset.size() != 2) {
-            error = "The number of bus_label_offset is not equal to 2"s;
-            return false;
+            return "The number of bus_label_offset is not equal to 2"s;
         }
         for (auto d : offset) {
             if (!(d.IsDouble() && d.AsDouble() >= -100000.0 && d.AsDouble() <= 100000.0)) {
-                error = "The bus_label_offset has incorrect offset"s;
-                return false;
+                return "The bus_label_offset has incorrect offset"s;
             }
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckStopLabelFontSize(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("stop_label_font_size"s) > 0 && settings.at("stop_label_font_size"s).IsInt())) {
-            error = "The stop_label_font_size is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckStopLabelFontSize(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("stop_label_font_size"s);
+        if (!(it != it_end && it->second.IsInt())) {
+            return "The stop_label_font_size is not found or has an incorrect format"s;
         }
-        int stop_label_font_size = settings.at("stop_label_font_size"s).AsInt();
+        int stop_label_font_size = it->second.AsInt();
         if (!(stop_label_font_size >= 0 && stop_label_font_size <= 100000)) {
-            error = "The stop_label_font_size is out of range"s;
-            return false;
+            return "The stop_label_font_size is out of range"s;
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckStopLabelOffset(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("stop_label_offset"s) > 0 && settings.at("stop_label_offset"s).IsArray())) {
-            error = "The stop_label_offset is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckStopLabelOffset(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("stop_label_offset"s);
+        if (!(it != it_end && it->second.IsArray())) {
+            return "The stop_label_offset is not found or has an incorrect format"s;
         }
-        const auto& offset = settings.at("stop_label_offset"s).AsArray();
+        const auto& offset = it->second.AsArray();
         if (offset.size() != 2) {
-            error = "The number of stop_label_offset is not equal to 2"s;
-            return false;
+            return "The number of stop_label_offset is not equal to 2"s;
         }
         for (auto d : offset) {
             if (!(d.IsDouble() && d.AsDouble() >= -100000.0 && d.AsDouble() <= 100000.0)) {
-                error = "The stop_label_offset has incorrect offset"s;
-                return false;
+                return "The stop_label_offset has incorrect offset"s;
             }
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckColor(const json::Node& color, std::string& error) {
+    std::optional<std::string> CheckColor(const json::Node& color) {
         if (color.IsString()) {
-            return true;
+            return std::nullopt;
         }
         if (color.IsArray()) {
             const auto& array = color.AsArray();
             if (array.size() == 3) {
                 for (const auto& elem : array) {
                     if (!(elem.IsInt() && elem.AsInt() >= 0 && elem.AsInt() <= 255)) {
-                        error += "incorrect rgb color"s;
-                        return false;
+                        return "incorrect rgb color"s;
                     }
                 }
-                return true;
+                return std::nullopt;
             } else if (array.size() == 4) {
                 for (int i = 0; i < 3; ++i) {
                     if (!(array[i].IsInt() && array[i].AsInt() >= 0 && array[i].AsInt() <= 255)) {
-                        error += "incorrect rgba color"s;
-                        return false;
+                        return "incorrect rgba color"s;
                     }
                 }
                 if (!(array[3].IsDouble() && array[3].AsDouble() >= 0.0 && array[3].AsDouble() <= 1.0)) {
-                    error += "incorrect rgba color"s;
-                    return false;
+                    return "incorrect rgba color"s;
                 }
-                return true;
+                return std::nullopt;
             }
         }
-        error += "incorrect format color"s;
-        return false;
+        return "incorrect format color"s;
     }
 
-    bool CheckUnderlayerColor(const json::Dict& settings, std::string& error) {
-        if (settings.count("underlayer_color"s) == 0) {
-            error = "The underlayer_color is not found"s;
-            return false;
+    std::optional<std::string> CheckUnderlayerColor(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("underlayer_color"s);
+        if (it == it_end) {
+            return "The underlayer_color is not found"s;
         }
-        error = "The underlayer_color has an "s;
-        return CheckColor(settings.at("underlayer_color"s), error);
+        if (auto error = CheckColor(it->second); error.has_value()) {
+            return "The underlayer_color has an "s + error.value();
+        }
+        return std::nullopt;
     }
 
-    bool CheckUnderlayerWidth(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("underlayer_width"s) > 0 && settings.at("underlayer_width"s).IsDouble())) {
-            error = "The underlayer_width is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckUnderlayerWidth(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("underlayer_width"s);
+        if (!(it != it_end && it->second.IsDouble())) {
+            return "The underlayer_width is not found or has an incorrect format"s;
         }
-        double underlayer_width = settings.at("underlayer_width"s).AsDouble();
+        double underlayer_width = it->second.AsDouble();
         if (!(underlayer_width >= 0.0 && underlayer_width <= 100000.0)) {
-            error = "The underlayer_width is out of range"s;
-            return false;
+            return "The underlayer_width is out of range"s;
         }
-        return true;
+        return std::nullopt;
     }
 
-    bool CheckColorPalette(const json::Dict& settings, std::string& error) {
-        if (!(settings.count("color_palette"s) > 0 && settings.at("color_palette"s).IsArray())) {
-            error = "The color_palette is not found or has an incorrect format"s;
-            return false;
+    std::optional<std::string> CheckColorPalette(const json::Dict& settings) {
+        const auto it_end = settings.end();
+        auto it = settings.find("color_palette"s);
+        if (!(it != it_end && it->second.IsArray())) {
+            return "The color_palette is not found or has an incorrect format"s;
         }
-        error = "The color_palette has an "s;
-        for (const auto& color : settings.at("color_palette"s).AsArray()) {
-            if (!CheckColor(color, error)) {
-                return false;
+        for (const auto& color : it->second.AsArray()) {
+            if (auto error = CheckColor(color); error.has_value()) {
+                return "The color_palette has an "s + error.value();
             }
         }
-        return true;
+        return std::nullopt;
     }
 
 } // namespace detail
 
-bool JsonReader::CheckRenderSettings(const json::Dict& settings, std::string& error) const {
-    if (!detail::CheckWidth(settings, error)) {return false;}
-    if (!detail::CheckHeight(settings, error)) {return false;}
-    if (!detail::CheckPadding(settings, error)) {return false;}
-    if (!detail::CheckLineWidth(settings, error)) {return false;}
-    if (!detail::CheckStopRadius(settings, error)) {return false;}
-    if (!detail::CheckBusLabelFontSize(settings, error)) {return false;}
-    if (!detail::CheckBusLabelOffset(settings, error)) {return false;}
-    if (!detail::CheckStopLabelFontSize(settings, error)) {return false;}
-    if (!detail::CheckStopLabelOffset(settings, error)) {return false;}
-    if (!detail::CheckUnderlayerColor(settings, error)) {return false;}
-    if (!detail::CheckUnderlayerWidth(settings, error)) {return false;}
-    if (!detail::CheckColorPalette(settings, error)) {return false;}
-    return true;
+std::optional<std::string> JsonReader::CheckRenderSettings(const json::Dict& settings) const {
+    if (auto error = detail::CheckWidth(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckHeight(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckPadding(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckLineWidth(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckStopRadius(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckBusLabelFontSize(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckBusLabelOffset(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckStopLabelFontSize(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckStopLabelOffset(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckUnderlayerColor(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckUnderlayerWidth(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckColorPalette(settings); error.has_value()) {return error;}
+    return std::nullopt;
+}
+
+void JsonReader::LoadStopsData(TransportCatalogue& catalogue, const json::Array& requests) const {
+    for (const auto& request : requests) {
+        const auto& map = request.AsMap();
+        const auto it_end = map.end();
+        auto it = map.find("type"s);
+        if (!(it != it_end && it->second.IsString())) {
+            throw std::invalid_argument("Invalid base request: Invalid type"s);
+        }
+
+        if (it->second.AsString() == "Stop"s) {
+            if (auto error = CheckStopData(map); error.has_value()) {
+                throw std::invalid_argument("Invalid base request: "s + error.value());
+            }
+            LoadStopData(catalogue, map);
+        }
+    }
 }
 
 void JsonReader::LoadStopData(TransportCatalogue& catalogue, const json::Dict& stop) const {
@@ -388,9 +397,30 @@ void JsonReader::LoadStopData(TransportCatalogue& catalogue, const json::Dict& s
     catalogue.AddStop({stop.at("name"s).AsString(), coordinates});
 }
 
+void JsonReader::LoadStopsDistances(TransportCatalogue& catalogue, const json::Array& requests) const {
+    for (const auto& request : requests) {
+        const auto& map = request.AsMap();
+        if (map.at("type"s) == "Stop"s) {
+            LoadStopDistances(catalogue, map.at("name"s).AsString(), map.at("road_distances"s).AsMap());
+        }
+    }
+}
+
 void JsonReader::LoadStopDistances(TransportCatalogue& catalogue, const std::string& from, const json::Dict& distances) const {
     for (const auto& [to, distance] : distances) {
         catalogue.AddDistance(from, to, distance.AsInt());
+    }
+}
+
+void JsonReader::LoadBusesData(TransportCatalogue& catalogue, const json::Array& requests) const {
+    for (const auto& request : requests) {
+        const auto& map = request.AsMap();
+        if (map.at("type"s) == "Bus"s) {
+            if (auto error = CheckBusData(map); error.has_value()) {
+                throw std::invalid_argument("Invalid base request: "s + error.value());
+            }
+            LoadBusData(catalogue, map);
+        }
     }
 }
 
@@ -445,6 +475,53 @@ std::vector<svg::Color> JsonReader::LoadRenderColorPalette(const json::Array& pa
         result.push_back(LoadRenderColor(color));
     }
     return result;
+}
+
+json::Dict JsonReader::GetBusJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
+    json::Dict map;
+    map["request_id"s] = json::Node(request.id);
+
+    auto bus_stat = handler.GetBusInfo(request.name);
+    if (bus_stat.has_value()) {
+        map["stop_count"s] = json::Node(bus_stat.value().stops_count);
+        map["unique_stop_count"s] = json::Node(bus_stat.value().unique_stops_count);
+        map["route_length"s] = json::Node(bus_stat.value().route_length);
+        map["curvature"s] = json::Node(bus_stat.value().curvature);
+    } else {
+        map["error_message"s] = json::Node("not found"s);
+    }
+
+    return map;
+}
+
+json::Dict JsonReader::GetStopJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
+    json::Dict map;
+    map["request_id"s] = json::Node(request.id);
+
+    auto stop_stat = handler.GetStopInfo(request.name);
+    if (stop_stat.has_value()) {
+        json::Array buses;
+        for (auto bus : stop_stat.value()) {
+            buses.push_back(json::Node(std::string{bus}));
+        }
+        map["buses"s] = json::Node(buses);
+    } else {
+        map["error_message"s] = json::Node("not found"s);
+    }
+
+    return map;
+}
+
+json::Dict JsonReader::GetMapJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
+    json::Dict map;
+    map["request_id"s] = json::Node(request.id);
+
+    auto map_svg = handler.RenderMap();
+    std::stringstream strm;
+    map_svg.Render(strm);
+    map["map"s] = json::Node(strm.str());
+
+    return map;
 }
 
 } // json_reader

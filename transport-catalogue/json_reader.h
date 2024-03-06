@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -12,28 +13,41 @@
 namespace transport_catalogue {
 namespace json_reader {
 
+struct Request {
+    int id;
+    std::string type;
+    std::string name;
+};
+
 class JsonReader {
 public:
     JsonReader(std::istream& input);
     void LoadCatalogueData(TransportCatalogue& catalogue) const;
-    std::vector<request_handler::Request> LoadStatRequests() const;
+    std::vector<Request> LoadStatRequests() const;
     map_renderer::RenderSettings LoadRenderSettings() const;
+    json::Document RenderAnswersJson(const request_handler::RequestHandler& handler, const std::vector<Request>& requests) const;
 
 private:
     json::Document data_;
 
-    bool CheckStopData(const json::Dict& stop, std::string& error) const;
+    std::optional<std::string> CheckStopData(const json::Dict& stop) const;
     bool CheckStopDistances(const json::Dict& distances) const;
-    bool CheckBusData(const json::Dict& bus, std::string& error) const;
+    std::optional<std::string> CheckBusData(const json::Dict& bus) const;
     bool CheckBusStops(const json::Array& stops) const;
-    bool CheckStatRequest(const json::Dict& request, std::string& error) const;
-    bool CheckRenderSettings(const json::Dict& settings, std::string& error) const;
+    std::optional<std::string> CheckStatRequest(const json::Dict& request) const;
+    std::optional<std::string> CheckRenderSettings(const json::Dict& settings) const;
+    void LoadStopsData(TransportCatalogue& catalogue, const json::Array& requests) const;
     void LoadStopData(TransportCatalogue& catalogue, const json::Dict& stop) const;
+    void LoadStopsDistances(TransportCatalogue& catalogue, const json::Array& requests) const;
     void LoadStopDistances(TransportCatalogue& catalogue, const std::string& from, const json::Dict& distances) const;
+    void LoadBusesData(TransportCatalogue& catalogue, const json::Array& requests) const;
     void LoadBusData(TransportCatalogue& catalogue, const json::Dict& bus) const;
     svg::Point LoadRenderOffset(const json::Array& offset) const;
     svg::Color LoadRenderColor(const json::Node& color) const;
     std::vector<svg::Color> LoadRenderColorPalette(const json::Array& pallete) const;
+    json::Dict GetBusJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
+    json::Dict GetStopJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
+    json::Dict GetMapJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
 };
 
 } // json_reader

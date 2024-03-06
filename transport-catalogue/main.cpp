@@ -14,6 +14,6 @@ int main() {
     json_reader.LoadCatalogueData(catalogue);
     map_renderer::MapRenderer renderer(json_reader.LoadRenderSettings());
     request_handler::RequestHandler request_handler(catalogue, renderer);
-    auto answers_json = request_handler.RenderAnswersJson(json_reader.LoadStatRequests());
+    auto answers_json = json_reader.RenderAnswersJson(request_handler, json_reader.LoadStatRequests());
     json::Print(answers_json, std::cout);
 }
