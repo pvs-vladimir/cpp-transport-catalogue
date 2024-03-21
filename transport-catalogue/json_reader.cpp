@@ -70,19 +70,21 @@ map_renderer::RenderSettings JsonReader::LoadRenderSettings() const {
 }
 
 json::Document JsonReader::RenderAnswersJson(const request_handler::RequestHandler& handler, const std::vector<Request>& requests) const {
-    json::Array answers;
-    
+    json::Builder builder;
+
+    builder.StartArray();
     for (const auto& request : requests) {
         if (request.type == "Bus"s) {
-            answers.push_back({GetBusJsonData(handler, request)});
+            builder.Value(GetBusJsonData(handler, request));
         } else if (request.type == "Stop"s) {
-            answers.push_back({GetStopJsonData(handler, request)});
+            builder.Value(GetStopJsonData(handler, request));
         } else if (request.type == "Map"s) {
-            answers.push_back({GetMapJsonData(handler, request)});
+            builder.Value(GetMapJsonData(handler, request));
         }
     }
+    builder.EndArray();
 
-    return json::Document(json::Node(answers));
+    return json::Document(builder.Build());
 }
 
 std::optional<std::string> JsonReader::CheckStopData(const json::Dict& stop) const {
@@ -477,51 +479,51 @@ std::vector<svg::Color> JsonReader::LoadRenderColorPalette(const json::Array& pa
     return result;
 }
 
-json::Dict JsonReader::GetBusJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
-    json::Dict map;
-    map["request_id"s] = json::Node(request.id);
-
+json::Node JsonReader::GetBusJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
+    json::Builder builder;
+    
+    builder.StartDict().Key("request_id"s).Value(request.id);
     auto bus_stat = handler.GetBusInfo(request.name);
     if (bus_stat.has_value()) {
-        map["stop_count"s] = json::Node(bus_stat.value().stops_count);
-        map["unique_stop_count"s] = json::Node(bus_stat.value().unique_stops_count);
-        map["route_length"s] = json::Node(bus_stat.value().route_length);
-        map["curvature"s] = json::Node(bus_stat.value().curvature);
+        builder.Key("stop_count"s).Value(bus_stat.value().stops_count)
+               .Key("unique_stop_count"s).Value(bus_stat.value().unique_stops_count)
+               .Key("route_length"s).Value(bus_stat.value().route_length)
+               .Key("curvature"s).Value(bus_stat.value().curvature).EndDict();
     } else {
-        map["error_message"s] = json::Node("not found"s);
+        builder.Key("error_message"s).Value("not found"s).EndDict();
     }
 
-    return map;
+    return builder.Build();
 }
 
-json::Dict JsonReader::GetStopJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
-    json::Dict map;
-    map["request_id"s] = json::Node(request.id);
+json::Node JsonReader::GetStopJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
+    json::Builder builder;
 
+    builder.StartDict().Key("request_id"s).Value(request.id);
     auto stop_stat = handler.GetStopInfo(request.name);
     if (stop_stat.has_value()) {
-        json::Array buses;
+        builder.Key("buses"s).StartArray();
         for (auto bus : stop_stat.value()) {
-            buses.push_back(json::Node(std::string{bus}));
+            builder.Value(std::string{bus});
         }
-        map["buses"s] = json::Node(buses);
+        builder.EndArray().EndDict();
     } else {
-        map["error_message"s] = json::Node("not found"s);
+        builder.Key("error_message"s).Value("not found"s).EndDict();
     }
 
-    return map;
+    return builder.Build();
 }
 
-json::Dict JsonReader::GetMapJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
-    json::Dict map;
-    map["request_id"s] = json::Node(request.id);
+json::Node JsonReader::GetMapJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
+    json::Builder builder;
 
+    builder.StartDict().Key("request_id"s).Value(request.id);
     auto map_svg = handler.RenderMap();
     std::stringstream strm;
     map_svg.Render(strm);
-    map["map"s] = json::Node(strm.str());
+    builder.Key("map"s).Value(strm.str()).EndDict();
 
-    return map;
+    return builder.Build();
 }
 
 } // json_reader

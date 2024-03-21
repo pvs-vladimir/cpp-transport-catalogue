@@ -54,7 +54,7 @@ void MapRenderer::RenderBusLines(const Buses& buses, svg::Document& document, co
             ++color_index;
         }
 
-        if (color_index >= settings_.color_palette.size()) {
+        if (color_index >= static_cast<int>(settings_.color_palette.size())) {
             color_index = 0;
         }
     }
@@ -96,7 +96,7 @@ void MapRenderer::RenderBusNames(const Buses& buses, svg::Document& document, co
             ++color_index;
         }
 
-        if (color_index >= settings_.color_palette.size()) {
+        if (color_index >= static_cast<int>(settings_.color_palette.size())) {
             color_index = 0;
         }
     }

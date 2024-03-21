@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "json.h"
+#include "json_builder.h"
 #include "map_renderer.h"
 #include "request_handler.h"
 #include "transport_catalogue.h"
@@ -45,9 +46,9 @@ private:
     svg::Point LoadRenderOffset(const json::Array& offset) const;
     svg::Color LoadRenderColor(const json::Node& color) const;
     std::vector<svg::Color> LoadRenderColorPalette(const json::Array& pallete) const;
-    json::Dict GetBusJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
-    json::Dict GetStopJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
-    json::Dict GetMapJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
+    json::Node GetBusJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
+    json::Node GetStopJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
+    json::Node GetMapJsonData(const request_handler::RequestHandler& handler, const Request& request) const;
 };
 
 } // json_reader
