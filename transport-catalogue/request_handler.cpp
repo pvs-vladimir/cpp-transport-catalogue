@@ -5,15 +5,16 @@ namespace request_handler {
 
 using namespace std::literals;
 
-RequestHandler::RequestHandler(const TransportCatalogue& catalogue, const map_renderer::MapRenderer& renderer) 
-    : catalogue_(catalogue), renderer_(renderer) {
+RequestHandler::RequestHandler(const TransportCatalogue& catalogue, const map_renderer::MapRenderer& renderer,
+                               const transport_router::TransportRouter& router) 
+    : catalogue_(catalogue), renderer_(renderer), router_(router) {
 }
 
-std::optional<BusInfo> RequestHandler::GetBusInfo(const std::string_view& bus_name) const {
+std::optional<BusInfo> RequestHandler::GetBusInfo(std::string_view bus_name) const {
     return catalogue_.GetBusInfo(bus_name);
 }
 
-std::optional<std::set<std::string_view>> RequestHandler::GetStopInfo(const std::string_view& stop_name) const {
+std::optional<std::set<std::string_view>> RequestHandler::GetStopInfo(std::string_view stop_name) const {
     return catalogue_.GetStopInfo(stop_name);
 }
 
@@ -29,6 +30,10 @@ svg::Document RequestHandler::RenderMap() const {
         bus_list[name] = ptr;
     }
     return renderer_.RenderMap(bus_list, stop_list);
+}
+
+std::optional<transport_router::RouteInfo> RequestHandler::GetRouteInfo(std::string_view from, std::string_view to) const {
+    return router_.GetRouteInfo(from, to);
 }
 
 } // request_handler

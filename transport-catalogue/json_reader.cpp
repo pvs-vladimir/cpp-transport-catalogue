@@ -36,6 +36,9 @@ std::vector<Request> JsonReader::LoadStatRequests() const {
             if (request.type == "Bus"s || request.type == "Stop"s) {
                 request.name = map.at("name"s).AsString();
             }
+            if (request.type == "Route"s) {
+                request.route = {map.at("from"s).AsString(), map.at("to"s).AsString()};
+            }
             result.push_back(request);
         }
     }
@@ -69,6 +72,21 @@ map_renderer::RenderSettings JsonReader::LoadRenderSettings() const {
     return result;
 }
 
+transport_router::RouterSettings JsonReader::LoadRouterSettings() const {
+    transport_router::RouterSettings result;
+    const auto it_end = data_.GetRoot().AsMap().end();
+    auto it = data_.GetRoot().AsMap().find("routing_settings"s);
+    if (it != it_end) {
+        const auto& routing_settings = it->second.AsMap();
+        if (auto error = CheckRouterSettings(routing_settings); error.has_value()) {
+            throw std::invalid_argument("Invalid routing settings: "s + error.value());
+        }
+        result.bus_wait_time = routing_settings.at("bus_wait_time"s).AsInt();
+        result.bus_velocity = routing_settings.at("bus_velocity"s).AsDouble();
+    }
+    return result;
+}
+
 json::Document JsonReader::RenderAnswersJson(const request_handler::RequestHandler& handler, const std::vector<Request>& requests) const {
     json::Builder builder;
 
@@ -80,6 +98,8 @@ json::Document JsonReader::RenderAnswersJson(const request_handler::RequestHandl
             builder.Value(GetStopJsonData(handler, request));
         } else if (request.type == "Map"s) {
             builder.Value(GetMapJsonData(handler, request));
+        } else if (request.type == "Route"s) {
+            builder.Value(GetRouteJsonData(handler, request));
         }
     }
     builder.EndArray();
@@ -157,6 +177,16 @@ std::optional<std::string> JsonReader::CheckStatRequest(const json::Dict& reques
         it = request.find("name"s);
         if (!(it != it_end && it->second.IsString())) {
             return "Stop/Bus name is not found or has an incorrect format"s;
+        }
+    }
+    if (it->second.AsString() == "Route"s) {
+        it = request.find("from"s);
+        if (!(it != it_end && it->second.IsString())) {
+            return "From for route is not found or has an incorrect format"s;
+        }
+        it = request.find("to"s);
+        if (!(it != it_end && it->second.IsString())) {
+            return "To for route is not found or has an incorrect format"s;
         }
     }
     return std::nullopt;
@@ -376,6 +406,42 @@ std::optional<std::string> JsonReader::CheckRenderSettings(const json::Dict& set
     return std::nullopt;
 }
 
+namespace detail {
+
+std::optional<std::string> CheckBusWaitTime(const json::Dict& settings) {
+    const auto it_end = settings.end();
+    auto it = settings.find("bus_wait_time"s);
+    if (!(it != it_end && it->second.IsInt())) {
+        return "The bus_wait_time is not found or has an incorrect format"s;
+    }
+    int bus_wait_time = it->second.AsInt();
+    if (!(bus_wait_time >= 1 && bus_wait_time <= 1000)) {
+        return "The bus_wait_time is out of range"s;
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> CheckBusVelocity(const json::Dict& settings) {
+    const auto it_end = settings.end();
+    auto it = settings.find("bus_velocity"s);
+    if (!(it != it_end && it->second.IsDouble())) {
+        return "The bus_velocity is not found or has an incorrect format"s;
+    }
+    int bus_velocity = it->second.AsDouble();
+    if (!(bus_velocity >= 1.0 && bus_velocity <= 1000.0)) {
+        return "The bus_velocity is out of range"s;
+    }
+    return std::nullopt;
+}
+
+} // namespace detail
+
+std::optional<std::string> JsonReader::CheckRouterSettings(const json::Dict& settings) const {
+    if (auto error = detail::CheckBusWaitTime(settings); error.has_value()) {return error;}
+    if (auto error = detail::CheckBusVelocity(settings); error.has_value()) {return error;}
+    return std::nullopt;
+}
+
 void JsonReader::LoadStopsData(TransportCatalogue& catalogue, const json::Array& requests) const {
     for (const auto& request : requests) {
         const auto& map = request.AsMap();
@@ -522,6 +588,34 @@ json::Node JsonReader::GetMapJsonData(const request_handler::RequestHandler& han
     std::stringstream strm;
     map_svg.Render(strm);
     builder.Key("map"s).Value(strm.str()).EndDict();
+
+    return builder.Build();
+}
+
+json::Node JsonReader::GetRouteJsonData(const request_handler::RequestHandler& handler, const Request& request) const {
+    json::Builder builder;
+
+    builder.StartDict().Key("request_id"s).Value(request.id);
+    auto route_stat = handler.GetRouteInfo(request.route.first, request.route.second);
+    if (route_stat.has_value()) {
+        builder.Key("total_time"s).Value(route_stat->total_time)
+               .Key("items").StartArray();
+        for (const auto& item : route_stat->items) {
+            builder.StartDict();
+            if (item.type == transport_router::EdgeType::WAIT) {
+                builder.Key("type"s).Value("Wait"s)
+                       .Key("stop_name"s).Value(std::string{item.name});
+            } else if (item.type == transport_router::EdgeType::BUS) {
+                builder.Key("type"s).Value("Bus"s)
+                       .Key("bus"s).Value(std::string{item.name})
+                       .Key("span_count"s).Value(*item.span_count);  
+            }
+            builder.Key("time"s).Value(item.time).EndDict();
+        }
+        builder.EndArray().EndDict();
+    } else {
+        builder.Key("error_message"s).Value("not found"s).EndDict();
+    }
 
     return builder.Build();
 }
